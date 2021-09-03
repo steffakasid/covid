@@ -57,6 +57,7 @@ func init() {
 }
 
 func main() {
+	var err error
 	flag.Parse()
 
 	if help {
@@ -66,8 +67,11 @@ func main() {
 			err := os.Remove(tmpFile)
 			logIfFatal(err)
 		}
-		if _, err := os.Stat(tmpFile); err != nil {
+		var fi os.FileInfo
+		if fi, err = os.Stat(tmpFile); err != nil {
 			downloadRKIrawData()
+		} else {
+			fmt.Printf("Downloaded %s at %s\n\n", tmpFile, fi.ModTime())
 		}
 		parseData()
 	}
