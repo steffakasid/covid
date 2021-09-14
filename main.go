@@ -34,8 +34,7 @@ const (
 )
 
 var (
-	regionCode                                      string
-	ageGroup                                        string
+	regionCode, ageGroup, yearFilter                string
 	help, aggregateYear, aggregateMonth, updateData bool
 )
 
@@ -51,6 +50,7 @@ func init() {
 	flag.BoolVar(&help, "help", false, "Show help")
 	flag.StringVar(&regionCode, "region", "", "German region code e.g. 8222 for Mannheim")
 	flag.StringVar(&ageGroup, "age-group", "", "Age group")
+	flag.StringVar(&yearFilter, "year", "", "Filter the result by year")
 	flag.BoolVar(&aggregateMonth, "aggregate-month", false, "Aggregate cases by month")
 	flag.BoolVar(&aggregateYear, "aggregate-year", false, "Aggregate cases by year")
 	flag.BoolVar(&updateData, "update", false, "Update data")
@@ -69,6 +69,7 @@ covid -region 8222         - Just print the results for region 8222 (Mannheim)
 covid -aggregate-month     - Instead calculating the full sum aggregate sums per month
 covid -aggregate-year      - Instead calculating the full sum aggregate sums per year
 covid -update              - Download the latest data from GitHub
+covid -year 2021           - Only show results for 2021
 
 Full Example:
 covid -region 8222 -aggregate-month -update
@@ -133,18 +134,19 @@ func casesPerYear(csvReader *csv.Reader) {
 			(ageGroup == "" || record[ageGroupID] == ageGroup) {
 			key1 := strings.Split(record[dateID], "-")[0]
 			key2 := strings.TrimSpace(record[ageGroupID])
+			if yearFilter == "" || yearFilter == key1 {
+				if !contains(header, key2) {
+					header = append(header, key2)
+				}
 
-			if !contains(header, key2) {
-				header = append(header, key2)
+				count, err := strconv.Atoi(record[countID])
+				logIfFatal(err)
+				if countCases[key1] == nil {
+					countCases[key1] = map[string]int{}
+				}
+				countCases[key1][key2] += count
+				countCases["SUM"][key2] += count
 			}
-
-			count, err := strconv.Atoi(record[countID])
-			logIfFatal(err)
-			if countCases[key1] == nil {
-				countCases[key1] = map[string]int{}
-			}
-			countCases[key1][key2] += count
-			countCases["SUM"][key2] += count
 		}
 		i++
 	}
@@ -169,20 +171,22 @@ func casesPerMonth(csvReader *csv.Reader) {
 			date := strings.Split(record[dateID], "-")
 			year := date[0]
 			month := date[1]
-			key1 := fmt.Sprintf("%s-%s", year, month)
-			key2 := strings.TrimSpace(record[ageGroupID])
+			if yearFilter == "" || yearFilter == year {
+				key1 := fmt.Sprintf("%s-%s", year, month)
+				key2 := strings.TrimSpace(record[ageGroupID])
 
-			if !contains(header, key2) {
-				header = append(header, key2)
-			}
+				if !contains(header, key2) {
+					header = append(header, key2)
+				}
 
-			count, err := strconv.Atoi(record[countID])
-			logIfFatal(err)
-			if countCases[key1] == nil {
-				countCases[key1] = map[string]int{}
+				count, err := strconv.Atoi(record[countID])
+				logIfFatal(err)
+				if countCases[key1] == nil {
+					countCases[key1] = map[string]int{}
+				}
+				countCases[key1][key2] += count
+				countCases["SUM"][key2] += count
 			}
-			countCases[key1][key2] += count
-			countCases["SUM"][key2] += count
 		}
 		i++
 	}
@@ -199,7 +203,8 @@ func allCases(csvReader *csv.Reader) {
 		}
 		if i > 0 &&
 			(regionCode == "" || record[regionCodeID] == regionCode) &&
-			(ageGroup == "" || record[ageGroupID] == ageGroup) {
+			(ageGroup == "" || record[ageGroupID] == ageGroup) &&
+			(yearFilter == "" || strings.Contains(record[dateID], yearFilter)) {
 			key1 := record[ageGroupID]
 
 			count, err := strconv.Atoi(record[countID])
