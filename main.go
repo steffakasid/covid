@@ -89,9 +89,9 @@ func main() {
 		var fi os.FileInfo
 		if updateData {
 			if _, err = os.Stat(tmpFile); err == nil {
-			err := os.Remove(tmpFile)
-			logIfFatal(err)
-		}
+				err := os.Remove(tmpFile)
+				logIfFatal(err)
+			}
 		}
 		if fi, err = os.Stat(tmpFile); err != nil {
 			downloadRKIrawData()
@@ -112,25 +112,27 @@ func parseData() {
 		casesPerYear(csvReader)
 	} else if aggregateMonth {
 		casesPerMonth(csvReader)
-	} else if ageGroup != "" {
-		allCases(csvReader)
 	} else {
-		casesPerAge(csvReader)
+		allCases(csvReader)
 	}
 }
 
 func casesPerYear(csvReader *csv.Reader) {
 	countCases := map[string]map[string]int{}
 	header := []string{}
+	countCases["SUM"] = map[string]int{}
+
 	i := 0
 	for {
 		record, err := csvReader.Read()
 		if err != nil {
 			break
 		}
-		if i > 0 && (regionCode == "" || record[regionCodeID] == regionCode) {
+		if i > 0 &&
+			(regionCode == "" || record[regionCodeID] == regionCode) &&
+			(ageGroup == "" || record[ageGroupID] == ageGroup) {
 			key1 := strings.Split(record[dateID], "-")[0]
-			key2 := record[ageGroupID]
+			key2 := strings.TrimSpace(record[ageGroupID])
 
 			if !contains(header, key2) {
 				header = append(header, key2)
@@ -142,6 +144,7 @@ func casesPerYear(csvReader *csv.Reader) {
 				countCases[key1] = map[string]int{}
 			}
 			countCases[key1][key2] += count
+			countCases["SUM"][key2] += count
 		}
 		i++
 	}
@@ -152,18 +155,22 @@ func casesPerYear(csvReader *csv.Reader) {
 func casesPerMonth(csvReader *csv.Reader) {
 	countCases := map[string]map[string]int{}
 	header := []string{}
+	countCases["SUM"] = map[string]int{}
+
 	i := 0
 	for {
 		record, err := csvReader.Read()
 		if err != nil {
 			break
 		}
-		if i > 0 && (regionCode == "" || record[regionCodeID] == regionCode) {
+		if i > 0 &&
+			(regionCode == "" || record[regionCodeID] == regionCode) &&
+			(ageGroup == "" || record[ageGroupID] == ageGroup) {
 			date := strings.Split(record[dateID], "-")
 			year := date[0]
 			month := date[1]
 			key1 := fmt.Sprintf("%s-%s", year, month)
-			key2 := record[ageGroupID]
+			key2 := strings.TrimSpace(record[ageGroupID])
 
 			if !contains(header, key2) {
 				header = append(header, key2)
@@ -175,6 +182,7 @@ func casesPerMonth(csvReader *csv.Reader) {
 				countCases[key1] = map[string]int{}
 			}
 			countCases[key1][key2] += count
+			countCases["SUM"][key2] += count
 		}
 		i++
 	}
@@ -182,85 +190,69 @@ func casesPerMonth(csvReader *csv.Reader) {
 }
 
 func allCases(csvReader *csv.Reader) {
-	countCases := 0
+	countCases := map[string]int{}
 	i := 0
 	for {
 		record, err := csvReader.Read()
 		if err != nil {
 			break
 		}
-		if i > 0 && (regionCode == "" || record[regionCodeID] == regionCode && record[ageGroupID] == ageGroup) {
-			count, err := strconv.Atoi(record[countID])
-			logIfFatal(err)
-			countCases += count
-		}
-		i++
-	}
-	fmt.Printf("Cases in %s: %d\n", ageGroup, countCases)
-}
+		if i > 0 &&
+			(regionCode == "" || record[regionCodeID] == regionCode) &&
+			(ageGroup == "" || record[ageGroupID] == ageGroup) {
+			key1 := record[ageGroupID]
 
-func casesPerAge(csvReader *csv.Reader) {
-	countCase := map[string]int{}
-	i := 0
-	for {
-		record, err := csvReader.Read()
-		if err != nil {
-			break
-		}
-		if i > 0 && (regionCode == "" || record[regionCodeID] == regionCode) {
 			count, err := strconv.Atoi(record[countID])
 			logIfFatal(err)
-			countCase[record[ageGroupID]] += count
+			countCases[key1] += count
+			countCases["SUM"] += count
 		}
 		i++
 	}
 
-	keys := make([]string, 0, len(countCase))
+	keys := make([]string, 0, len(countCases))
 	maxKeyLen := 0
-	for k := range countCase {
+	for k := range countCases {
 		keys = append(keys, k)
 		if len(k) > maxKeyLen {
 			maxKeyLen = len(k)
 		}
 	}
 	sort.Strings(keys)
-	fmt.Println("AgeGroup", "\t", "Count")
-	fmt.Println("-----------------------")
+	headerSpace := " "
+	if maxKeyLen-8 > 0 {
+		headerSpace = strings.Repeat(" ", maxKeyLen-6)
+	}
+	fmt.Printf("AgeGroup%sCount\n", headerSpace)
+	fmt.Println(strings.Repeat("-", maxKeyLen+10))
 	for _, key := range keys {
-		div := maxKeyLen / len(key)
-		tabs := strings.Repeat("\t", div)
-		fmt.Println(key, tabs, countCase[key])
+		space := strings.Repeat(" ", maxKeyLen-len(key)+2)
+		fmt.Printf("%s%s%d\n", key, space, countCases[key])
 	}
 }
 
 func printSimpleTable(countCases map[string]map[string]int, header []string) {
-	tableHeader := "AgeGroup\t"
-
+	tableHeader := "AgeGroup" + strings.Repeat(" ", 2)
+	columWidth := 10
 	sort.Strings(header)
 
 	for _, hd := range header {
-		tableHeader = tableHeader + fmt.Sprintf("%s\t", hd)
+		tableHeader = tableHeader + hd + strings.Repeat(" ", columWidth-len(hd))
 	}
 	fmt.Println(tableHeader)
-	tabs := strings.Count(tableHeader, "\t")
-	for i := 0; i < (len(tableHeader) + tabs + 3); i++ {
-		fmt.Print("-")
-	}
-	fmt.Println()
+	fmt.Println(strings.Repeat("-", len(tableHeader)+2))
 
 	keys := make([]string, 0, len(countCases))
 	for k := range countCases {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-
 	for _, key := range keys {
-
-		fmt.Printf("%s\t\t", key)
+		fmt.Printf("%s%s", key, strings.Repeat(" ", columWidth-len(key)))
 
 		ageGroups := countCases[key]
 		for _, ag := range header {
-			fmt.Printf("%d\t", ageGroups[ag])
+			fmt.Printf("%d%s", ageGroups[ag], strings.Repeat(" ", columWidth-len(strconv.Itoa(ageGroups[ag]))))
 		}
 		fmt.Println()
 	}
