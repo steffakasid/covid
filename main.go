@@ -86,11 +86,13 @@ func main() {
 	if help {
 		flag.CommandLine.Usage()
 	} else {
+		var fi os.FileInfo
 		if updateData {
+			if _, err = os.Stat(tmpFile); err == nil {
 			err := os.Remove(tmpFile)
 			logIfFatal(err)
 		}
-		var fi os.FileInfo
+		}
 		if fi, err = os.Stat(tmpFile); err != nil {
 			downloadRKIrawData()
 		} else {
