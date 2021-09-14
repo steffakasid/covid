@@ -54,6 +54,29 @@ func init() {
 	flag.BoolVar(&aggregateMonth, "aggregate-month", false, "Aggregate cases by month")
 	flag.BoolVar(&aggregateYear, "aggregate-year", false, "Aggregate cases by year")
 	flag.BoolVar(&updateData, "update", false, "Update data")
+	flag.Usage = func() {
+		w := flag.CommandLine.Output() // may be os.Stderr - but not necessarily
+
+		fmt.Fprintf(w, "Usage of %s: \n", os.Args[0])
+		fmt.Fprintln(w, `
+This tool can be used to download the raw covid data from the german RKI GitHub repository.
+Per default it will just print the fully aggregated overall sums per age group. Multiple flags
+can be used to change this behavior:
+
+Examples:
+covid -age-group A00-A04   - Just print the aggregated sum for age group A00-A04
+covid -region 8222         - Just print the results for region 8222 (Mannheim)
+covid -aggregate-month     - Instead calculating the full sum aggregate sums per month
+covid -aggregate-year      - Instead calculating the full sum aggregate sums per year
+covid -update              - Download the latest data from GitHub
+
+Full Example:
+covid -region 8222 -aggregate-month -update
+
+Flags:`)
+
+		flag.PrintDefaults()
+	}
 }
 
 func main() {
