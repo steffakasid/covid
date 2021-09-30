@@ -16,35 +16,19 @@ limitations under the License.
 package main
 
 import (
-	"encoding/csv"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 
 	flag "github.com/spf13/pflag"
-)
-
-const (
-	rkiRawDataURL = "https://media.githubusercontent.com/media/robert-koch-institut/SARS-CoV-2_Infektionen_in_Deutschland/master/Aktuell_Deutschland_SarsCov2_Infektionen.csv"
-	tmpFile       = "/tmp/Aktuell_Deutschland_SarsCov2_Infektionen.csv"
+	"github.com/steffakasid/covid/internal"
 )
 
 var (
 	regionCode, ageGroup, yearFilter                string
 	help, aggregateYear, aggregateMonth, updateData bool
-)
-
-const (
-	regionCodeID = 0
-	ageGroupID   = 1
-	dateID       = 3
-	countID      = 9
-	countDeadID  = 10
 )
 
 func init() {
@@ -74,86 +58,36 @@ Full Example:
 covid -region 8222 -aggregate-month -update
 
 Flags:`)
-
 		flag.PrintDefaults()
 	}
 }
 
 func main() {
-	var err error
 	flag.Parse()
 
 	if help {
 		flag.Usage()
 	} else {
-		var fi os.FileInfo
+		covid := internal.GetInstance("https://media.githubusercontent.com/media/robert-koch-institut/SARS-CoV-2_Infektionen_in_Deutschland/master/Aktuell_Deutschland_SarsCov2_Infektionen.csv", "/tmp/Aktuell_Deutschland_SarsCov2_Infektionen.csv")
+
 		if updateData {
-			if _, err = os.Stat(tmpFile); err == nil {
-				err := os.Remove(tmpFile)
-				logIfFatal(err)
-			}
+			covid.UpdateData()
 		}
-		if fi, err = os.Stat(tmpFile); err != nil {
-			downloadRKIrawData()
+
+		var aggregate internal.Aggregation
+		if aggregateMonth && aggregateYear {
+			panic("You should only define either --aggregate-year or --aggregate-month not both")
+		} else if aggregateMonth {
+			aggregate = internal.AggregateMonth
+		} else if aggregateYear {
+			aggregate = internal.AggregateYear
 		} else {
-			fmt.Printf("Downloaded %s at %s\n\n", tmpFile, fi.ModTime())
+			aggregate = internal.NoAggregation
 		}
-		parseData()
+
+		data, header := covid.ParseData(regionCode, ageGroup, yearFilter, aggregate)
+		printSimpleTable(data, header)
 	}
-}
-
-func parseData() {
-	file, err := os.Open(tmpFile)
-	logIfFatal(err)
-
-	csvReader := csv.NewReader(file)
-
-	countCases := map[string]map[string]int{}
-	header := []string{}
-	countCases["SUM"] = map[string]int{}
-
-	i := 0
-	for {
-		record, err := csvReader.Read()
-		if err != nil {
-			break
-		}
-		if i > 0 &&
-			(regionCode == "" || record[regionCodeID] == regionCode) &&
-			(ageGroup == "" || record[ageGroupID] == ageGroup) {
-
-			key1 := ""
-			key2 := strings.TrimSpace(record[ageGroupID])
-			date := strings.Split(record[dateID], "-")
-			year := date[0]
-			month := date[1]
-
-			if aggregateYear {
-				key1 = year
-			}
-			if aggregateMonth {
-				key1 = fmt.Sprintf("%s-%s", year, month)
-			}
-
-			if yearFilter == "" || yearFilter == year {
-				if !contains(header, key2) {
-					header = append(header, key2)
-				}
-
-				count, err := strconv.Atoi(record[countID])
-				logIfFatal(err)
-				if key1 != "" {
-					if countCases[key1] == nil {
-						countCases[key1] = map[string]int{}
-					}
-					countCases[key1][key2] += count
-				}
-				countCases["SUM"][key2] += count
-			}
-		}
-		i++
-	}
-	printSimpleTable(countCases, header)
 }
 
 func printSimpleTable(countCases map[string]map[string]int, header []string) {
@@ -181,36 +115,4 @@ func printSimpleTable(countCases map[string]map[string]int, header []string) {
 		}
 		fmt.Println()
 	}
-}
-
-func downloadRKIrawData() error {
-	// Get the data
-	resp, err := http.Get(rkiRawDataURL)
-	logIfFatal(err)
-	defer resp.Body.Close()
-
-	// Create the file
-	out, err := os.Create(tmpFile)
-	logIfFatal(err)
-
-	defer out.Close()
-
-	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-func logIfFatal(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func contains(arr []string, val string) bool {
-	for _, s := range arr {
-		if s == val {
-			return true
-		}
-	}
-	return false
 }
