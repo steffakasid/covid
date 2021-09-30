@@ -17,7 +17,6 @@ package main
 
 import (
 	"encoding/csv"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -26,6 +25,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	flag "github.com/spf13/pflag"
 )
 
 const (
@@ -47,29 +48,27 @@ const (
 )
 
 func init() {
-	flag.BoolVar(&help, "help", false, "Show help")
-	flag.StringVar(&regionCode, "region", "", "German region code e.g. 8222 for Mannheim")
-	flag.StringVar(&ageGroup, "age-group", "", "Age group")
-	flag.StringVar(&yearFilter, "year", "", "Filter the result by year")
+	flag.BoolVarP(&help, "help", "h", false, "Show help")
+	flag.StringVarP(&regionCode, "region", "r", "", "German region code e.g. 8222 for Mannheim")
+	flag.StringVarP(&ageGroup, "age-group", "a", "", "Age group")
+	flag.StringVarP(&yearFilter, "year", "y", "", "Filter the result by year")
 	flag.BoolVar(&aggregateMonth, "aggregate-month", false, "Aggregate cases by month")
 	flag.BoolVar(&aggregateYear, "aggregate-year", false, "Aggregate cases by year")
-	flag.BoolVar(&updateData, "update", false, "Update data")
+	flag.BoolVarP(&updateData, "update", "u", false, "Update data")
 	flag.Usage = func() {
-		w := flag.CommandLine.Output() // may be os.Stderr - but not necessarily
-
-		fmt.Fprintf(w, "Usage of %s: \n", os.Args[0])
-		fmt.Fprintln(w, `
+		fmt.Fprintf(os.Stderr, "Usage of %s: \n", os.Args[0])
+		fmt.Fprintln(os.Stderr, `
 This tool can be used to download the raw covid data from the german RKI GitHub repository.
 Per default it will just print the fully aggregated overall sums per age group. Multiple flags
 can be used to change this behavior:
 
 Examples:
-covid -age-group A00-A04   - Just print the aggregated sum for age group A00-A04
-covid -region 8222         - Just print the results for region 8222 (Mannheim)
-covid -aggregate-month     - Instead calculating the full sum aggregate sums per month
-covid -aggregate-year      - Instead calculating the full sum aggregate sums per year
-covid -update              - Download the latest data from GitHub
-covid -year 2021           - Only show results for 2021
+covid --age-group A00-A04   - Just print the aggregated sum for age group A00-A04
+covid --region 8222         - Just print the results for region 8222 (Mannheim)
+covid --aggregate-month     - Instead calculating the full sum aggregate sums per month
+covid --aggregate-year      - Instead calculating the full sum aggregate sums per year
+covid --update              - Download the latest data from GitHub
+covid --year 2021           - Only show results for 2021
 
 Full Example:
 covid -region 8222 -aggregate-month -update
@@ -85,7 +84,7 @@ func main() {
 	flag.Parse()
 
 	if help {
-		flag.CommandLine.Usage()
+		flag.Usage()
 	} else {
 		var fi os.FileInfo
 		if updateData {
@@ -109,16 +108,6 @@ func parseData() {
 
 	csvReader := csv.NewReader(file)
 
-	if aggregateYear {
-		casesPerYear(csvReader)
-	} else if aggregateMonth {
-		casesPerMonth(csvReader)
-	} else {
-		allCases(csvReader)
-	}
-}
-
-func casesPerYear(csvReader *csv.Reader) {
 	countCases := map[string]map[string]int{}
 	header := []string{}
 	countCases["SUM"] = map[string]int{}
@@ -132,108 +121,39 @@ func casesPerYear(csvReader *csv.Reader) {
 		if i > 0 &&
 			(regionCode == "" || record[regionCodeID] == regionCode) &&
 			(ageGroup == "" || record[ageGroupID] == ageGroup) {
-			key1 := strings.Split(record[dateID], "-")[0]
+
+			key1 := ""
 			key2 := strings.TrimSpace(record[ageGroupID])
-			if yearFilter == "" || yearFilter == key1 {
-				if !contains(header, key2) {
-					header = append(header, key2)
-				}
-
-				count, err := strconv.Atoi(record[countID])
-				logIfFatal(err)
-				if countCases[key1] == nil {
-					countCases[key1] = map[string]int{}
-				}
-				countCases[key1][key2] += count
-				countCases["SUM"][key2] += count
-			}
-		}
-		i++
-	}
-
-	printSimpleTable(countCases, header)
-}
-
-func casesPerMonth(csvReader *csv.Reader) {
-	countCases := map[string]map[string]int{}
-	header := []string{}
-	countCases["SUM"] = map[string]int{}
-
-	i := 0
-	for {
-		record, err := csvReader.Read()
-		if err != nil {
-			break
-		}
-		if i > 0 &&
-			(regionCode == "" || record[regionCodeID] == regionCode) &&
-			(ageGroup == "" || record[ageGroupID] == ageGroup) {
 			date := strings.Split(record[dateID], "-")
 			year := date[0]
 			month := date[1]
-			if yearFilter == "" || yearFilter == year {
-				key1 := fmt.Sprintf("%s-%s", year, month)
-				key2 := strings.TrimSpace(record[ageGroupID])
 
+			if aggregateYear {
+				key1 = year
+			}
+			if aggregateMonth {
+				key1 = fmt.Sprintf("%s-%s", year, month)
+			}
+
+			if yearFilter == "" || yearFilter == year {
 				if !contains(header, key2) {
 					header = append(header, key2)
 				}
 
 				count, err := strconv.Atoi(record[countID])
 				logIfFatal(err)
-				if countCases[key1] == nil {
-					countCases[key1] = map[string]int{}
+				if key1 != "" {
+					if countCases[key1] == nil {
+						countCases[key1] = map[string]int{}
+					}
+					countCases[key1][key2] += count
 				}
-				countCases[key1][key2] += count
 				countCases["SUM"][key2] += count
 			}
 		}
 		i++
 	}
 	printSimpleTable(countCases, header)
-}
-
-func allCases(csvReader *csv.Reader) {
-	countCases := map[string]int{}
-	i := 0
-	for {
-		record, err := csvReader.Read()
-		if err != nil {
-			break
-		}
-		if i > 0 &&
-			(regionCode == "" || record[regionCodeID] == regionCode) &&
-			(ageGroup == "" || record[ageGroupID] == ageGroup) &&
-			(yearFilter == "" || strings.Contains(record[dateID], yearFilter)) {
-			key1 := record[ageGroupID]
-
-			count, err := strconv.Atoi(record[countID])
-			logIfFatal(err)
-			countCases[key1] += count
-			countCases["SUM"] += count
-		}
-		i++
-	}
-
-	keys := make([]string, 0, len(countCases))
-	maxKeyLen := 0
-	for k := range countCases {
-		keys = append(keys, k)
-		if len(k) > maxKeyLen {
-			maxKeyLen = len(k)
-		}
-	}
-	sort.Strings(keys)
-	headerSpace := " "
-	if maxKeyLen-8 > 0 {
-		headerSpace = strings.Repeat(" ", maxKeyLen-6)
-	}
-	fmt.Printf("AgeGroup%sCount\n", headerSpace)
-	fmt.Println(strings.Repeat("-", maxKeyLen+10))
-	for _, key := range keys {
-		space := strings.Repeat(" ", maxKeyLen-len(key)+2)
-		fmt.Printf("%s%s%d\n", key, space, countCases[key])
-	}
 }
 
 func printSimpleTable(countCases map[string]map[string]int, header []string) {
