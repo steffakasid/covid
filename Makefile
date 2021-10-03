@@ -1,104 +1,81 @@
+.PHONY: help test build binary integration-test clean update-deps lint
+help:
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-PROJECTNAME=$(shell basename "$(PWD)")
-VERSION?=$(shell git describe --tags --always --dirty --match=v* 2> /dev/null || \
-            echo v0)
+.DEFAULT_GOAL := help
 
-# Go related variables.
-GOBASE=${HOME}/Projects/Go
-GOPATH="$(GOBASE)/vendor:$(GOBASE)"
-GOBIN=$(GOBASE)/bin
-GOFILES=$(wildcard *.go)
+GOBIN=$(GOPATH)/bin
+GOCMD=go
+GOBUILD=$(GOCMD) build
+GOCLEAN=$(GOCMD) clean
+GOMOD=$(GOCMD) mod
+GOTEST=$(GOCMD) test
+GOTOOL=$(GOCMD) tool
+BINARY_NAME=kusto-me
+TESTNAME?=.
+HTMLCOVERFILE?=build/coverage.html
+COVERFILE?=coverage.out
 
-# Redirect error output to a file, so we can show it in development mode.
-STDERR=/tmp/.$(PROJECTNAME)-stderr.txt
+ifneq ("$(wildcard VERSION)","")
+VERSION=$(shell cat VERSION)
+else
+VERSION=$(shell git rev-list -1 HEAD)
+endif
 
-# PID file will keep the process id of the server
-PID=/tmp/.$(PROJECTNAME).pid
+export PATH := $(CURDIR)/.bin:$(PATH)
 
-# Make is verbose in Linux. Make it silent.
-MAKEFLAGS += --silent
+all: test build ## run all build and test targets
 
-## install: Install missing dependencies. Runs `go get` internally. e.g; make install get=github.com/foo/bar
-install: go-get
+build: ## build the binary locally
+	$(GOBUILD) -o $(BINARY_NAME) -ldflags "-X main.version=$(VERSION)"
 
-## start: Start in development mode. Auto-starts when code changes.
-start:
-		bash -c "trap 'make stop' EXIT; $(MAKE) compile start-server watch run='make compile start-server'"
+install: ## build locally and copy bin into $(GOROOT)/bin
+	$(GOCLEAN)
+	$(GOBUILD) -o $(GOBIN)/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)"
 
-## stop: Stop development mode.
-stop: stop-server
+binary: ## build the binary
+	$(GOCLEAN)
+	@GOOS=${GOOS} GOARCH=${GOARCH} $(GOBUILD) -a -o $(BINARY_NAME) -ldflags "-X main.version=$(VERSION)"
 
-start-server: stop-server
-	@echo "  >  $(PROJECTNAME) is available at $(ADDR)"
-	@-$(GOBIN)/$(PROJECTNAME) 2>&1 & echo $$! > $(PID)
-	@cat $(PID) | sed "/^/s/^/  \>  PID: /"
-
-stop-server:
-	@-touch $(PID)
-	@-kill `cat $(PID)` 2> /dev/null || true
-	@-rm $(PID)
-
-## watch: Run given command when code changes. e.g; make watch run="echo 'hey'"
-watch:
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) yolo -i . -e vendor -e bin -c "$(run)"
-
-restart-server: stop-server start-server
-
-## compile: Compile the binary.
-compile:
-	@-touch $(STDERR)
-	@-rm $(STDERR)
-	@-$(MAKE) -s go-compile 2> $(STDERR)
-	@cat $(STDERR) | sed -e '1s/.*/\nError:\n/'  | sed 's/make\[.*/ /' | sed "/^/s/^/     /" 1>&2
-
-## exec: Run given command, wrapped with custom GOPATH. e.g; make exec run="go test ./..."
-exec:
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) $(run)
-
-## clean: Clean build files. Runs `go clean` internally.
-clean:
-	@(MAKEFILE) go-clean
-
-go-compile: go-clean go-get go-build
-
-go-build:
-	@echo "  >  Building binary..."
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build \
-				-tags release \
-				-o $(GOBIN)/$(PROJECTNAME) $(GOFILES)
-
-go-build-all:
-	@GOOS=darwin  GOARCH=amd64 GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build \
+build-all:
+	$(GOCLEAN)
+	rm -rf build
+	@GOOS=darwin GOARCH=amd64 GOBIN=$(GOBIN) go build \
 			-tags release \
-			-ldflags '-X github.com/steffakasid/dof/cmd.version=$(VERSION)' \
-			-o $(GOBIN)/main-freebsd-386 $(GOFILES)
-	@GOOS=linux GOARCH=amd64 GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build \
+			-ldflags '-X main.version=$(VERSION)' \
+			-o build/${BINARY_NAME}-darwin-amd64
+	@GOOS=linux GOARCH=amd64 GOBIN=$(GOBIN) go build \
 			-tags release \
-			-ldflags '-X github.com/steffakasid/dof/cmd.version=$(VERSION)' \
-			-o $(GOBIN)/main-linux-386 $(GOFILES)
+			-ldflags '-X main.version=$(VERSION)' \
+			-o build/${BINARY_NAME}-linux-amd64
+	@GOOS=windows GOARCH=amd64 GOBIN=$(GOBIN) go build \
+			-tags release \
+			-ldflags '-X main.version=$(VERSION)' \
+			-o build/${BINARY_NAME}-windows-amd64.exe
+	tar -czvf build/${BINARY_NAME}-${VERSION}-darwin-amd64.tar.gz build/bizhubo-darwin-amd64
+	tar -czvf build/${BINARY_NAME}-${VERSION}-linux-amd64.tar.gz build/bizhubo-linux-amd64
+	tar -czvf build/${BINARY_NAME}-${VERSION}-win-amd64.tar.gz build/bizhubo-windows-amd64.exe
 
-go-generate:
-	@echo "  >  Generating dependency files..."
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go generate $(generate)
+image: binary ## build a local docker image
+	docker build -t ${BINARY_NAME}:local .
 
-go-get:
-	@echo "  >  Checking if there is any missing dependencies..."
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go get $(get)
+test: ## run all unit tests
+	$(GOTEST) -v ./... -cover -coverprofile=$(COVERFILE)
 
-go-install:
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build \
-				-tags release \
-				-o $(GOBIN)/$(PROJECTNAME) $(GOFILES)
+htmlcoverage: ##view coveragre after test or integration-test run
+	$(GOTOOL) cover -html=build/coverage.out -o $(HTMLCOVERFILE)
 
-go-clean:
-	@echo "  >  Cleaning build cache"
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go clean
+clean: ## remove all compiled stuff
+	$(GOCLEAN)
+	rm -rf build
 
-.PHONY: help
-all: help
-help: Makefile
-	@echo
-	@echo " Choose a command run in "$(PROJECTNAME)":"
-	@echo
-	@sed -n 's/^##//p' $< | column -t -s ':' |  sed -e 's/^/ /'
-	@echo
+update-deps: ## update dependencies in vendor directory
+	$(GOMOD) vendor
+
+ci-test: test
+
+.bin:
+	mkdir .bin
+
+lint:
+	golangci-lint run --print-issued-lines=false --out-format=colored-line-number --issues-exit-code=0 --timeout 10m

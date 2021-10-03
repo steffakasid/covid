@@ -1,4 +1,5 @@
-name: Go
+---
+name: Go Build
 
 on:
   push:
@@ -19,7 +20,4 @@ jobs:
         go-version: 1.16
 
     - name: Build
-      run: make go-build
-
-    # - name: Test
-    #   run: go test -v ./...
+      run: make build
