@@ -1,4 +1,5 @@
-# Covid [![Go](https://github.com/steffakasid/covid/actions/workflows/go.yml/badge.svg)](https://github.com/steffakasid/covid/actions/workflows/go.yml)
+# Covid
+[![Go Build](https://github.com/steffakasid/covid/actions/workflows/go-build.yml/badge.svg)](https://github.com/steffakasid/covid/actions/workflows/go-build.yml) [![Go Test](https://github.com/steffakasid/covid/actions/workflows/go-test.yml/badge.svg)](https://github.com/steffakasid/covid/actions/workflows/go-test.yml)
 
 This tool just downloads the RKI covid raw data from link:https://media.githubusercontent.com/media/robert-koch-institut/SARS-CoV-2_Infektionen_in_Deutschland/master/Aktuell_Deutschland_SarsCov2_Infektionen.csv[] and shows them on the command line.
 
